@@ -487,7 +487,7 @@ class CompanyAttributes(FullTableStream):
             yield from response.get(self.data_key,  [])
 
 
-class CompnaySegments(IncrementalStream):
+class CompanySegments(IncrementalStream):
     """
     Retrieve company segments
 
@@ -715,6 +715,7 @@ class Contacts(IncrementalStream):
     # addressable_list_fields = ['tags', 'notes', 'companies']
     addressable_list_fields = ['tags', 'companies']
     to_write_intermediate_bookmark = True
+    child = 'notes'
 
     def get_addressable_list(self, contact_list: dict, stream_metadata: dict) -> dict:
         params = {
@@ -797,6 +798,83 @@ class Contacts(IncrementalStream):
             LOGGER.info("Synced: {} for page: {}, records: {}".format(self.tap_stream_id, response.get('pages', {}).get('page'), len(records)))
 
             yield from records
+
+
+class Notes(BaseStream):
+    """
+    Retrieve contact notes
+
+    Docs: https://developers.intercom.com/intercom-api-reference/reference/listnotes
+    """
+
+    tap_stream_id = 'notes'
+    key_properties = ['id']
+    path = 'contacts/{}/notes'
+    replication_method = 'FULL_TABLE'
+    replication_key = 'created_at'
+    valid_replication_keys = ['created_at']
+    parent = Contacts
+    data_key = 'data'
+
+    def get_records(self, bookmark_datetime: datetime = None, is_parent: bool = False, stream_metadata=None, parent_id = None) -> Iterator[list]:
+        call_path = self.path.format(parent_id)
+        paging = True
+        next_page = None
+
+        while paging:
+            response = self.client.get(call_path, url=next_page, params=self.params)
+            records = transform_json(response, self.tap_stream_id, self.data_key)
+
+            if 'pages' in response and response.get('pages', {}).get('next'):
+                next_page = response.get('pages', {}).get('next')
+                call_path = None
+                LOGGER.info("Syncing next page")
+            else:
+                paging = False
+
+            LOGGER.info("Syncing: {} parent_id {} for page {} / {}, {} records.".format(
+                self.tap_stream_id, parent_id, response.get('pages', {}).get('page'), response.get('pages', {}).get('total_pages'), len(records)))
+            for record in records:
+                # if bookmark_datetime.timestamp() < record.get('created_at', datetime.datetime.utcnow().timestamp()):
+                yield record
+
+    def sync_substream(self, parent_id, stream_schema, stream_metadata, parent_replication_value, state):
+        """
+            Sync sub-stream data based on parent id and update the state to parent's replication value
+        """
+        start_date = '1970-01-01T00:00:00Z'
+        start_bookmark = singer.get_bookmark(state, self.tap_stream_id, self.replication_key, start_date)
+        sync_start_date = singer.utils.strptime_to_utc(start_bookmark)
+
+        schema_datetimes = find_datetimes_in_schema(stream_schema)
+        LOGGER.info("Syncing: {}, parent_stream: {}, parent_id: {}".format(self.tap_stream_id, self.parent.tap_stream_id, parent_id))
+
+        with metrics.record_counter(self.tap_stream_id) as counter:
+            for record in self.get_records(sync_start_date, parent_id=parent_id):
+
+                # Iterate over notes records
+                transform_times(record, schema_datetimes) # Transfrom datetimes fields of record
+
+                transformed_record = transform(record,
+                                                stream_schema,
+                                                integer_datetime_fmt=UNIX_MILLISECONDS_INTEGER_DATETIME_PARSING,
+                                                metadata=stream_metadata)
+                singer.write_record(self.tap_stream_id, transformed_record, time_extracted=singer.utils.now())
+                counter.increment()
+
+            LOGGER.info("FINISHED Synced: {}, parent_stream: {}, parent_id: {}, total_records: {}.".format(
+                self.tap_stream_id, self.parent.tap_stream_id, parent_id, counter.value))
+
+        # Contact(parent) are coming in ascending order
+        # so write state with updated_at of conversation after yielding notes for it.
+        parent_bookmark_value = self.epoch_milliseconds_to_dt_str(parent_replication_value)
+        state = singer.write_bookmark(state,
+                                        self.tap_stream_id,
+                                        self.replication_key,
+                                        parent_bookmark_value)
+        singer.write_state(state)
+
+        return state
 
 
 class Segments(IncrementalStream):
@@ -897,10 +975,11 @@ STREAMS = {
     "admins": Admins,
     "companies": Companies,
     "company_attributes": CompanyAttributes,
-    "company_segments": CompnaySegments,
+    "company_segments": CompanySegments,
     "conversations": Conversations,
     "conversation_parts": ConversationParts,
     "contact_attributes": ContactAttributes,
+    "notes": Notes,
     "contacts": Contacts,
     "segments": Segments,
     "tags": Tags,
