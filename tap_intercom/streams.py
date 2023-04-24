@@ -12,7 +12,7 @@ import singer
 from singer import Transformer, metrics, metadata, UNIX_MILLISECONDS_INTEGER_DATETIME_PARSING
 from singer.transform import transform, unix_milliseconds_to_datetime
 
-from tap_intercom.client import (IntercomClient, IntercomError)
+from tap_intercom.client import (IntercomClient, IntercomError, IntercomNotFoundError)
 from tap_intercom.transform import (transform_json, transform_times, find_datetimes_in_schema)
 
 LOGGER = singer.get_logger()
@@ -822,21 +822,25 @@ class Notes(BaseStream):
         next_page = None
 
         while paging:
-            response = self.client.get(call_path, url=next_page, params=self.params)
-            records = transform_json(response, self.tap_stream_id, self.data_key)
+            try:
+                response = self.client.get(call_path, url=next_page, params=self.params) # Retrieve json response
+                records = transform_json(response, self.tap_stream_id, self.data_key)
 
-            if 'pages' in response and response.get('pages', {}).get('next'):
-                next_page = response.get('pages', {}).get('next')
-                call_path = None
-                LOGGER.info("Syncing next page")
-            else:
-                paging = False
+                if 'pages' in response and response.get('pages', {}).get('next'):
+                    next_page = response.get('pages', {}).get('next')
+                    call_path = None
+                    LOGGER.info("Syncing next page")
+                else:
+                    paging = False
 
-            LOGGER.info("Syncing: {} parent_id {} for page {} / {}, {} records.".format(
-                self.tap_stream_id, parent_id, response.get('pages', {}).get('page'), response.get('pages', {}).get('total_pages'), len(records)))
-            for record in records:
-                # if bookmark_datetime.timestamp() < record.get('created_at', datetime.datetime.utcnow().timestamp()):
-                yield record
+                LOGGER.info("Syncing: {} parent_id {} for page {} / {}, {} records.".format(
+                    self.tap_stream_id, parent_id, response.get('pages', {}).get('page'), response.get('pages', {}).get('total_pages'), len(records)))
+                for record in records:
+                    # if bookmark_datetime.timestamp() < record.get('created_at', datetime.datetime.utcnow().timestamp()):
+                    yield record
+
+            except IntercomNotFoundError: # pylint: disable=broad-except
+                pass
 
     def sync_substream(self, parent_id, stream_schema, stream_metadata, parent_replication_value, state):
         """
