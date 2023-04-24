@@ -821,8 +821,8 @@ class Notes(BaseStream):
         paging = True
         next_page = None
 
-        while paging:
-            try:
+        try:
+            while paging:
                 response = self.client.get(call_path, url=next_page, params=self.params) # Retrieve json response
                 records = transform_json(response, self.tap_stream_id, self.data_key)
 
@@ -839,8 +839,8 @@ class Notes(BaseStream):
                     # if bookmark_datetime.timestamp() < record.get('created_at', datetime.datetime.utcnow().timestamp()):
                     yield record
 
-            except IntercomNotFoundError: # pylint: disable=broad-except
-                pass
+        except IntercomNotFoundError: # pylint: disable=broad-except
+            pass
 
     def sync_substream(self, parent_id, stream_schema, stream_metadata, parent_replication_value, state):
         """
