@@ -810,7 +810,7 @@ class Notes(BaseStream):
     tap_stream_id = 'notes'
     key_properties = ['id']
     path = 'contacts/{}/notes'
-    replication_method = 'FULL_TABLE'
+    replication_method = 'INCREMENTAL'
     replication_key = 'created_at'
     valid_replication_keys = ['created_at']
     parent = Contacts
