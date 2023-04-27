@@ -712,10 +712,10 @@ class Contacts(IncrementalStream):
     valid_replication_keys = ['updated_at']
     data_key = 'data'
     per_page = MAX_PAGE_SIZE
-    # addressable_list_fields = ['tags', 'notes', 'companies']
-    addressable_list_fields = ['tags', 'companies']
+    addressable_list_fields = ['tags', 'companies', 'notes']
+    # addressable_list_fields = ['tags', 'companies']
     to_write_intermediate_bookmark = True
-    child = 'notes'
+    # child = 'notes'
 
     def get_addressable_list(self, contact_list: dict, stream_metadata: dict) -> dict:
         params = {
@@ -737,8 +737,8 @@ class Contacts(IncrementalStream):
                 #   If we have 0 records
                 #   If we have less than 10 records ie. the 'has_more' field is 'False'
                 if not stream_metadata.get(('properties', addressable_list_field), {}).get('selected') or \
-                    not data.get('total_count') > 0 or \
-                        not data.get('has_more'):
+                    not data.get('total_count') > 0:
+                        # not data.get('has_more'):
                     continue
 
                 while paging:
@@ -983,7 +983,7 @@ STREAMS = {
     "conversations": Conversations,
     "conversation_parts": ConversationParts,
     "contact_attributes": ContactAttributes,
-    "notes": Notes,
+    # "notes": Notes,
     "contacts": Contacts,
     "segments": Segments,
     "tags": Tags,
