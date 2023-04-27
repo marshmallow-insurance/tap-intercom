@@ -742,15 +742,19 @@ class Contacts(IncrementalStream):
                     continue
 
                 while paging:
-                    response = self.client.get(endpoint, url=next_page, params=params)
+                    try:
+                        response = self.client.get(endpoint, url=next_page, params=params)
 
-                    if 'pages' in response and response.get('pages', {}).get('next'):
-                        next_page = response.get('pages', {}).get('next')
-                        endpoint = None
-                    else:
+                        if 'pages' in response and response.get('pages', {}).get('next'):
+                            next_page = response.get('pages', {}).get('next')
+                            endpoint = None
+                        else:
+                            paging = False
+
+                        values.extend(response.get(self.data_key, []))
+
+                    except IntercomNotFoundError: # pylint: disable=broad-except
                         paging = False
-
-                    values.extend(response.get(self.data_key, []))
                 record[addressable_list_field][self.data_key] = values
 
         return contact_list
